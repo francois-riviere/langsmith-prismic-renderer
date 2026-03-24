@@ -266,45 +266,49 @@
       const output = data || {};
       const inputs = (metadata && metadata.inputs) || {};
 
-      // Route: content rendering (ContentWriterAgent output)
+      // Extract documentId + repo + releaseId from any trace type
+      const repo = output.repositoryId || inputs.repositoryId || "prismic-main";
+      const releaseId = output.releaseId || inputs.releaseId;
+
+      // PersonalizationAgent: pageVariant.documentId
+      // batchProcessGraph: results[0].documentId
+      // ContentWriterAgent: no direct docId — fall back to inline render
+      const docId =
+        output.pageVariant?.documentId ||
+        (output.results && output.results[0]?.documentId) ||
+        null;
+
+      // If we have a documentId, redirect to Prismic preview
+      if (docId) {
+        await redirectToPreview(repo, docId, releaseId);
+        return;
+      }
+
+      // Fallback: inline content rendering (ContentWriterAgent)
       if (output.outputDocumentContent) {
         renderContent(output);
         return;
       }
 
-      // Route: batch summary (batchProcessGraph output)
-      if (output.results && !output.pageVariant) {
-        renderBatchSummary(output);
-        return;
-      }
+      showError("No document ID found in trace output.", output);
 
-      // Route: Prismic preview redirect (PersonalizationAgent output)
-      const repo = output.repositoryId || inputs.repositoryId || "prismic-main";
-      const releaseId = output.releaseId || inputs.releaseId;
-      const pageVariant = output.pageVariant || {};
-      const docId = pageVariant.documentId;
+    });
 
-      if (!docId) {
-        showError("No document ID found in trace output.", output);
-        return;
-      }
-
+    async function redirectToPreview(repo, docId, releaseId) {
       setStatus("Resolving preview URL...");
-
       try {
         const ref = await resolveRef(repo, releaseId);
         if (!ref) {
           showFallback(repo, docId, releaseId, "Could not resolve Prismic ref.");
           return;
         }
-
         const tokenUrl = `https://${repo}.prismic.io/previews/${ref}?websitePreviewId=${WEBSITE_PREVIEW_ID}`;
         const previewUrl = `https://prismic.io/api/preview?token=${encodeURIComponent(tokenUrl)}&documentId=${docId}`;
         window.location.href = previewUrl;
       } catch (e) {
         showFallback(repo, docId, releaseId, e.message);
       }
-    });
+    }
 
     // --- Prismic preview helpers ---
 
