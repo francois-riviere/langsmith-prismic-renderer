@@ -355,11 +355,16 @@
       const el = document.getElementById("content");
       el.style.display = "block";
 
-      const title = extractText(doc.title);
+      // Title: try doc.title, then extract from first hero slice
+      let title = extractText(doc.title);
+      if (!title) {
+        const heroSlice = (doc.slices?.value || []).find(s => s.name === "hero");
+        if (heroSlice) title = extractText(heroSlice.widget?.primary?.title);
+      }
       const metaTitle = extractFieldValue(doc.meta_title);
       const metaDesc = extractFieldValue(doc.meta_description);
-      const uid = doc.uid?.value || "";
-      const customType = doc.customType || outputs.customType || "";
+      const uid = extractFieldValue(doc.uid) || doc.uid?.value || "";
+      const customType = extractFieldValue(doc.customType) || outputs.customType?.label || outputs.customType?.id || "";
 
       let html = `<div class="article"><div class="meta-bar">`;
       html += `<h1>${esc(title)}</h1>`;
@@ -415,22 +420,102 @@
         html += renderRichText(primary.title);
         html += renderRichText(primary.content);
         html += `</div>`;
-      } else if (name === "text_content") {
+      } else if (name === "text_content" || name === "text") {
+        html += renderRichText(primary.title);
         html += renderRichText(primary.content);
       } else if (name === "comparison_table") {
         html += renderComparisonTable(primary, items);
-      } else if (name === "faq") {
+      } else if (name === "faq" || name === "accordion") {
         html += renderRichText(primary.title);
-        html += renderFaq(items);
+        if (primary.description) html += renderRichText(primary.description);
+        html += renderItemList(items, name === "faq" ? ["question","answer"] : ["title","description"]);
+      } else if (name === "hero") {
+        // Skip hero — title already extracted for meta-bar
+        if (primary.text) html += renderRichText(primary.text);
+      } else if (name === "feature_grid") {
+        html += renderRichText(primary.title);
+        if (primary.description) html += renderRichText(primary.description);
+        html += renderItemList(items, ["title","description"]);
+      } else if (name === "pricing_table") {
+        html += renderPricingTable(primary, items);
+      } else if (name === "step_boxes") {
+        html += renderRichText(primary.title);
+        if (primary.description) html += renderRichText(primary.description);
+        html += renderSteps(items);
+      } else if (name === "table_of_contents") {
+        // Skip — TOC is navigation, not content
+      } else if (name === "form") {
+        html += renderRichText(primary.title);
+        if (primary.description) html += renderRichText(primary.description);
       } else {
         html += `<div class="slice-label">${esc(name)}</div>`;
         for (const [key, val] of Object.entries(primary)) {
           if (val?.__TYPE__ === "StructuredTextContent") html += renderRichText(val);
-          else if (val?.__TYPE__ === "FieldContent") html += `<p>${esc(val.value || "")}</p>`;
+          else if (val?.__TYPE__ === "FieldContent" && val.value) html += `<p>${esc(val.value)}</p>`;
         }
       }
 
       html += `</div>`;
+      return html;
+    }
+
+    function renderItemList(items, fieldNames) {
+      let html = "";
+      const [titleField, bodyField] = fieldNames;
+      for (const item of items) {
+        const vals = itemToMap(item);
+        html += `<div class="faq-item">`;
+        if (vals[titleField]) html += renderRichText(vals[titleField]);
+        if (vals[bodyField]) html += renderRichText(vals[bodyField]);
+        html += `</div>`;
+      }
+      return html;
+    }
+
+    function renderPricingTable(primary, items) {
+      let html = "";
+      html += renderRichText(primary.title);
+      if (primary.description) html += renderRichText(primary.description);
+
+      // Collect column headers from primary fields
+      const colKeys = Object.keys(primary).filter(k =>
+        k !== "title" && k !== "description" && k !== "pre_title"
+      ).sort();
+
+      if (items.length === 0) return html;
+
+      html += `<table><thead><tr><th></th>`;
+      for (const k of colKeys) {
+        html += `<th>${esc(extractFieldValue(primary[k]) || k.replace(/_/g, " "))}</th>`;
+      }
+      html += `</tr></thead><tbody>`;
+
+      for (const item of items) {
+        const vals = itemToMap(item);
+        const rowTitle = extractFieldValue(vals.title) || extractText(vals.title) || "";
+        html += `<tr><td><strong>${esc(rowTitle)}</strong></td>`;
+        for (const k of colKeys) {
+          const cellKey = "text_" + k;
+          const cell = vals[cellKey] || vals[k.replace("_title", "")] || vals["explanation"];
+          html += `<td>${cell ? renderRichTextInline(cell) : ""}</td>`;
+        }
+        html += `</tr>`;
+      }
+      html += `</tbody></table>`;
+      return html;
+    }
+
+    function renderSteps(items) {
+      let html = `<ol>`;
+      for (const item of items) {
+        const vals = itemToMap(item);
+        const title = extractFieldValue(vals.title) || extractText(vals.title) || "";
+        const text = vals.text || vals.description;
+        html += `<li><strong>${esc(title)}</strong>`;
+        if (text) html += `<br>${renderRichTextInline(text)}`;
+        html += `</li>`;
+      }
+      html += `</ol>`;
       return html;
     }
 
