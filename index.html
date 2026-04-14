@@ -257,14 +257,16 @@
 
     window.addEventListener("message", async (event) => {
       if (handled) return;
-      if (!event.data || !event.data.type) return;
+      if (!event.data) return;
 
-      const { type, data, metadata } = event.data;
-      if (type !== "output" && type !== "reference") return;
+      // LangSmith sends {type, data, metadata} but some contexts send raw data
+      const payload = event.data;
+      const type = payload.type;
+      if (type && type !== "output" && type !== "reference") return;
       handled = true;
 
-      const output = data || {};
-      const inputs = (metadata && metadata.inputs) || {};
+      const output = payload.data || payload || {};
+      const inputs = (payload.metadata && payload.metadata.inputs) || {};
 
       // Extract documentId + repo + releaseId from any trace type
       const repo = output.repositoryId || inputs.repositoryId || "prismic-main";
@@ -421,8 +423,17 @@
         html += renderRichText(primary.content);
         html += `</div>`;
       } else if (name === "text_content" || name === "text") {
-        html += renderRichText(primary.title);
-        html += renderRichText(primary.content);
+        // Detect TL;DR / Key Takeaways by title text
+        const titleText = extractText(primary.title).toLowerCase();
+        if (titleText.includes("takeaway") || titleText.includes("tl;dr") || titleText.includes("tldr")) {
+          html += `<div class="tldr">`;
+          html += renderRichText(primary.title);
+          html += renderRichText(primary.content);
+          html += `</div>`;
+        } else {
+          html += renderRichText(primary.title);
+          html += renderRichText(primary.content);
+        }
       } else if (name === "comparison_table") {
         html += renderComparisonTable(primary, items);
       } else if (name === "faq" || name === "accordion") {
@@ -488,29 +499,23 @@
       html += renderRichText(primary.title);
       if (primary.description) html += renderRichText(primary.description);
 
-      // Collect column headers from primary fields
-      const colKeys = Object.keys(primary).filter(k =>
-        k !== "title" && k !== "description" && k !== "pre_title"
-      ).sort();
-
       if (items.length === 0) return html;
 
-      html += `<table><thead><tr><th></th>`;
-      for (const k of colKeys) {
-        html += `<th>${esc(extractFieldValue(primary[k]) || k.replace(/_/g, " "))}</th>`;
-      }
-      html += `</tr></thead><tbody>`;
+      // Detect item field names from first item
+      const firstVals = itemToMap(items[0]);
+      const itemKeys = Object.keys(firstVals);
 
+      // Simple two-column table: title/label + explanation/description/text
+      const labelKey = itemKeys.find(k => k === "title" || k === "label" || k === "sub_heading") || itemKeys[0];
+      const bodyKey = itemKeys.find(k => k === "explanation" || k === "description" || k === "text" || k === "content") || itemKeys[1];
+
+      html += `<table><tbody>`;
       for (const item of items) {
         const vals = itemToMap(item);
-        const rowTitle = extractFieldValue(vals.title) || extractText(vals.title) || "";
-        html += `<tr><td><strong>${esc(rowTitle)}</strong></td>`;
-        for (const k of colKeys) {
-          const cellKey = "text_" + k;
-          const cell = vals[cellKey] || vals[k.replace("_title", "")] || vals["explanation"];
-          html += `<td>${cell ? renderRichTextInline(cell) : ""}</td>`;
-        }
-        html += `</tr>`;
+        const label = extractFieldValue(vals[labelKey]) || extractText(vals[labelKey]) || "";
+        const body = vals[bodyKey];
+        html += `<tr><td><strong>${esc(label)}</strong></td>`;
+        html += `<td>${body ? renderRichTextInline(body) : ""}</td></tr>`;
       }
       html += `</tbody></table>`;
       return html;
