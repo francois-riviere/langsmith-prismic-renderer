@@ -280,19 +280,31 @@
         (output.results && output.results[0]?.documentId) ||
         null;
 
-      // If we have a documentId, redirect to Prismic preview
+      // Batch traces: show summary with links (don't auto-redirect)
+      if (output.results && output.results.length > 0) {
+        renderBatchSummary(output, repo, releaseId);
+        return;
+      }
+
+      // Single document with documentId: redirect to Prismic preview
       if (docId) {
         await redirectToPreview(repo, docId, releaseId);
         return;
       }
 
-      // Fallback: inline content rendering (ContentWriterAgent)
+      // ContentWriterAgent: inline content rendering
       if (output.outputDocumentContent) {
         renderContent(output);
         return;
       }
 
-      showError("No document ID found in trace output.", output);
+      // Strategy Agent traces
+      if (output.campaignBrief || output.targetBrief || output.strategyPreview) {
+        renderStrategyOutput(output);
+        return;
+      }
+
+      showError("Unrecognised trace output.", output);
 
     });
 
@@ -386,7 +398,7 @@
       el.innerHTML = html;
     }
 
-    function renderBatchSummary(outputs) {
+    function renderBatchSummary(outputs, repo, releaseId) {
       document.getElementById("status").style.display = "none";
       const el = document.getElementById("content");
       el.style.display = "block";
@@ -399,14 +411,56 @@
       html += `</div></div>`;
 
       for (const r of (outputs.results || [])) {
+        const docId = r.documentId || "";
+        const builderUrl = repo && docId
+          ? `https://${esc(repo)}.prismic.io/builder/pages/${esc(docId)}${releaseId ? `?s=release&r=${esc(releaseId)}` : "?s=published"}`
+          : "";
         html += `<div class="batch-card">`;
-        html += `<h2>${esc(r.title || r.documentId || "Untitled")}</h2>`;
-        html += `<div class="meta-detail">${esc(r.customTypeId || "")} · ${r.changesCount || 0} changes</div>`;
+        html += `<h2>${builderUrl ? `<a href="${builderUrl}" target="_blank">` : ""}${esc(r.keyword || r.title || r.documentId || "Untitled")}${builderUrl ? "</a>" : ""}</h2>`;
+        html += `<div class="meta-detail">${esc(r.customTypeId || "")} · ${r.changesCount || 0} changes · ${esc(r.status || "")}</div>`;
         html += `</div>`;
       }
 
       html += `</div>`;
       el.innerHTML = html;
+    }
+
+    function renderStrategyOutput(output) {
+      document.getElementById("status").style.display = "none";
+      const el = document.getElementById("content");
+      el.style.display = "block";
+
+      const brief = output.targetBrief?.brief || output.campaignBrief?.campaignContext || "";
+      const keyword = output.targetRecord?.keyword || "";
+      const preview = output.strategyPreview || "";
+
+      let html = `<div class="article"><div class="meta-bar">`;
+      html += `<h1>${esc(keyword || "Strategy Output")}</h1>`;
+      if (preview) html += `<div class="meta-detail">${esc(preview).replace(/\n/g, "<br>")}</div>`;
+      html += `</div>`;
+      if (brief) html += renderMarkdown(brief);
+      html += `</div>`;
+      el.innerHTML = html;
+    }
+
+    function renderMarkdown(text) {
+      if (!text) return "";
+      let h = esc(text);
+      h = h.replace(/^#### (.+)$/gm, "<h4>$1</h4>");
+      h = h.replace(/^### (.+)$/gm, "<h3>$1</h3>");
+      h = h.replace(/^## (.+)$/gm, "<h2>$1</h2>");
+      h = h.replace(/^# (.+)$/gm, "<h1>$1</h1>");
+      h = h.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+      h = h.replace(/\*(.+?)\*/g, "<em>$1</em>");
+      h = h.replace(/^---$/gm, "<hr>");
+      h = h.replace(/^- (.+)$/gm, "<li>$1</li>");
+      h = h.replace(/(<li>.*<\/li>\n?)+/g, m => `<ul>${m}</ul>`);
+      h = h.replace(/\n\n/g, "</p><p>");
+      h = `<p>${h}</p>`;
+      h = h.replace(/<p>\s*<\/p>/g, "");
+      h = h.replace(/<p>\s*(<(?:h[1-4]|hr|ul|ol)>)/g, "$1");
+      h = h.replace(/(<\/(?:h[1-4]|hr|ul|ol)>)\s*<\/p>/g, "$1");
+      return h;
     }
 
     function renderSlice(slice) {
