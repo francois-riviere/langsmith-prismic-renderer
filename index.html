@@ -449,7 +449,18 @@
         if (primary.description) html += renderRichText(primary.description);
       } else {
         html += `<div class="slice-label">${esc(name)}</div>`;
-        for (const [key, val] of Object.entries(primary)) {
+        // Render fields in semantic order: title/heading first, then description, then content, then rest
+        const fieldOrder = ["pre_title", "title", "heading", "subtitle", "description", "text", "content"];
+        const orderedKeys = Object.keys(primary).sort((a, b) => {
+          const ai = fieldOrder.indexOf(a);
+          const bi = fieldOrder.indexOf(b);
+          if (ai !== -1 && bi !== -1) return ai - bi;
+          if (ai !== -1) return -1;
+          if (bi !== -1) return 1;
+          return 0;
+        });
+        for (const key of orderedKeys) {
+          const val = primary[key];
           if (val?.__TYPE__ === "StructuredTextContent") html += renderRichText(val);
           else if (val?.__TYPE__ === "FieldContent" && val.value) html += `<p>${esc(val.value)}</p>`;
         }
@@ -575,7 +586,7 @@
     function renderRichText(field) {
       if (!field || !field.value) return "";
       let html = "";
-      let inList = false;
+      let listTag = null; // "ul" or "ol"
 
       for (const block of field.value) {
         const text = block.content?.text || "";
@@ -584,26 +595,26 @@
         const rendered = applySpans(text, spans);
 
         if (type === "list-item") {
-          if (!inList) { html += "<ul>"; inList = true; }
+          if (listTag !== "ul") { if (listTag) html += `</${listTag}>`; html += "<ul>"; listTag = "ul"; }
           html += `<li>${rendered}</li>`;
           continue;
         } else if (type === "o-list-item") {
-          if (!inList) { html += "<ol>"; inList = true; }
+          if (listTag !== "ol") { if (listTag) html += `</${listTag}>`; html += "<ol>"; listTag = "ol"; }
           html += `<li>${rendered}</li>`;
           continue;
         }
 
-        if (inList) { html += "</ul>"; inList = false; }
+        if (listTag) { html += `</${listTag}>`; listTag = null; }
 
         if (type === "heading1") html += `<h1>${rendered}</h1>`;
         else if (type === "heading2") html += `<h2>${rendered}</h2>`;
         else if (type === "heading3") html += `<h3>${rendered}</h3>`;
         else if (type === "heading4") html += `<h4>${rendered}</h4>`;
         else if (type === "preformatted") html += `<pre>${rendered}</pre>`;
-        else html += `<p>${rendered}</p>`;
+        else if (text) html += `<p>${rendered}</p>`;
       }
 
-      if (inList) html += "</ul>";
+      if (listTag) html += `</${listTag}>`;
       return html;
     }
 
