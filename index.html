@@ -41,10 +41,20 @@
     window.addEventListener("message", (event) => {
       if (handled) return;
       if (!event.data) return;
-      handled = true;
 
       const payload = event.data;
-      const output = payload.data || payload || {};
+
+      // Only handle LangSmith messages — they have type "output"/"reference"
+      // or contain recognizable output fields
+      const output = payload.data || payload;
+      if (typeof output !== "object") return;
+
+      const isLangSmith = payload.type === "output" || payload.type === "reference"
+        || output.outputDocumentContent || output.targetBrief || output.campaignBrief
+        || output.strategyPreview || output.results;
+      if (!isLangSmith) return;
+
+      handled = true;
 
       document.getElementById("status").style.display = "none";
       const el = document.getElementById("content");
